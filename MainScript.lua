@@ -65,14 +65,26 @@ local function InitializeAudioSandbox()
 end
 InitializeAudioSandbox()
 
--- Rayfield Core Loading Matrix
-local RayfieldSuccess, Rayfield = pcall(function()
-    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+--======================================================================================================================--
+-- RAYFIELD CORE LOADING MATRIX (HARDENED DUAL-ROUTING)
+--======================================================================================================================--
+local Rayfield
+local RayfieldSuccess, ExecutionError = pcall(function()
+    -- Attempt 1: Standard Sirius Menu
+    Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 end)
 
-if not RayfieldSuccess or not Rayfield then
-    warn("[CRITICAL FAILURE] Unable to load Rayfield UI Bootstrap Library from host network.")
-    return
+if not RayfieldSuccess or type(Rayfield) ~= "table" then
+    warn("[PRIMARY LOAD FAILED] Attempting Fallback GitHub URL. Error: " .. tostring(ExecutionError))
+    local FallbackSuccess, FallbackError = pcall(function()
+        -- Attempt 2: Direct GitHub Raw Source (Bypasses sirius.menu domain blocks)
+        Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/sirius-menu/rayfield/main/source.lua'))()
+    end)
+    
+    if not FallbackSuccess or type(Rayfield) ~= "table" then
+        warn("[CRITICAL FAILURE] Both UI Bootstrap links failed to load. Check executor or internet connection.")
+        return
+    end
 end
 
 -- Main Window Initialization Configuration
@@ -997,7 +1009,7 @@ LoadersTab:CreateButton({
 --                                              10. MEME & STRUCTURAL TAB                                               --
 --======================================================================================================================--
 
-MemeTab:CreateToggle({
+EntertainmentTab:CreateToggle({
     Name = "C0 Joint Matrix Angular Spin Routine",
     CurrentValue = false,
     Callback = function(ToggleState)
@@ -1023,7 +1035,7 @@ MemeTab:CreateToggle({
     end,
 })
 
-MemeTab:CreateToggle({
+EntertainmentTab:CreateToggle({
     Name = "Impact Velocity Ground Structural Tremor Simulation",
     CurrentValue = false,
     Callback = function(ToggleState)

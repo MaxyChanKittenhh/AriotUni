@@ -33,6 +33,8 @@ local PanelState = {
     HeadSpinConnection = nil,
     AntiAfkConnection = nil,
     FreecamConnection = nil,
+    AimbotConnection = nil,
+    FlingConnection = nil,
     
     FlySpeed = 50,
     TpWalkSpeed = 2,
@@ -41,6 +43,12 @@ local PanelState = {
     EspActive = false,
     CollisionsDisabled = false,
     SpectatingActive = false,
+    
+    AimbotActive = false,
+    AimbotFOV = 200,
+    AimbotSmoothness = 0.15,
+    
+    FlingActive = false,
     
     TargetAudioTrack = nil,
     CurrentActiveEmoteTrack = nil
@@ -810,6 +818,88 @@ VisualsTab:CreateToggle({
 })
 
 --======================================================================================================================--
+--                                               AIMBOT SUBSYSTEM (RENDER & CAMERA)                                     --
+--======================================================================================================================--
+
+local function ResolveClosestTargetInFieldOfView()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local viewportCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    local playerPool = Players:GetPlayers()
+    for index = 1, #playerPool do
+        local candidatePlayer = playerPool[index]
+        if candidatePlayer ~= LocalPlayer and candidatePlayer.Character then
+            local targetPartInstance = candidatePlayer.Character:FindFirstChild("Head")
+            if targetPartInstance and targetPartInstance:IsA("BasePart") then
+                local screenProjection, isOnScreen = Camera:WorldToViewportPoint(targetPartInstance.Position)
+                if isOnScreen then
+                    local displacementFromCenter = (Vector2.new(screenProjection.X, screenProjection.Y) - viewportCenter).Magnitude
+                    if displacementFromCenter < shortestDistance and displacementFromCenter <= PanelState.AimbotFOV then
+                        shortestDistance = displacementFromCenter
+                        closestPlayer = candidatePlayer
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+VisualsTab:CreateToggle({
+    Name = "Precision Target Acquisition Matrix (Aimbot)",
+    CurrentValue = false,
+    Callback = function(ToggleState)
+        PanelState.AimbotActive = ToggleState
+        
+        if PanelState.AimbotConnection then
+            PanelState.AimbotConnection:Disconnect()
+            PanelState.AimbotConnection = nil
+        end
+        
+        if ToggleState then
+            PanelState.AimbotConnection = RunService.RenderStepped:Connect(function()
+                if not PanelState.AimbotActive then return end
+                if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
+                
+                local lockedTarget = ResolveClosestTargetInFieldOfView()
+                if lockedTarget and lockedTarget.Character then
+                    local targetPart = lockedTarget.Character:FindFirstChild("Head")
+                    if targetPart then
+                        local targetCFrame = CFrame.new(Camera.CFrame.Position, targetPart.Position)
+                        Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, PanelState.AimbotSmoothness)
+                    end
+                end
+            end)
+        end
+    end,
+})
+
+VisualsTab:CreateSlider({
+    Name = "Target Acquisition Field of View Radius",
+    Range = {50, 800},
+    Increment = 10,
+    Suffix = "Screen Pixels",
+    CurrentValue = 200,
+    Flag = "AimbotFOVSliderRegister",
+    Callback = function(SliderValue)
+        PanelState.AimbotFOV = SliderValue
+    end,
+})
+
+VisualsTab:CreateSlider({
+    Name = "Aimbot Rotational Smoothing Coefficient",
+    Range = {0.01, 1},
+    Increment = 0.01,
+    Suffix = "Lerp Alpha",
+    CurrentValue = 0.15,
+    Flag = "AimbotSmoothnessSliderRegister",
+    Callback = function(SliderValue)
+        PanelState.AimbotSmoothness = SliderValue
+    end,
+})
+
+--======================================================================================================================--
 --                                                7. PHYSICS & ENVIRON TAB                                               --
 --======================================================================================================================--
 
@@ -886,6 +976,73 @@ WorldTab:CreateSlider({
     Flag = "WorkspaceGravityRegister",
     Callback = function(SliderValue)
         Workspace.Gravity = SliderValue
+    end,
+})
+
+--======================================================================================================================--
+--                                               FLING SUBSYSTEM (PHYSICS & ENVIRON)                                    --
+--======================================================================================================================--
+
+WorldTab:CreateToggle({
+    Name = "Rotational Kinetic Energy Transfer (Fling)",
+    CurrentValue = false,
+    Callback = function(ToggleState)
+        PanelState.FlingActive = ToggleState
+        
+        if PanelState.FlingConnection then
+            PanelState.FlingConnection:Disconnect()
+            PanelState.FlingConnection = nil
+        end
+        
+        local localCharacter = LocalPlayer.Character
+        local rootPart = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+        
+        if not rootPart then return end
+        
+        if ToggleState then
+            local angularVelocityInstance = Instance.new("BodyAngularVelocity")
+            angularVelocityInstance.Name = "ArchitecturalFlingBAV"
+            angularVelocityInstance.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+            angularVelocityInstance.AngularVelocity = Vector3.new(0, 999999999, 0)
+            angularVelocityInstance.Parent = rootPart
+            
+            local bodyVelocityInstance = Instance.new("BodyVelocity")
+            bodyVelocityInstance.Name = "ArchitecturalFlingBV"
+            bodyVelocityInstance.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            bodyVelocityInstance.Velocity = Vector3.new(0, 0, 0)
+            bodyVelocityInstance.Parent = rootPart
+            
+            PanelState.FlingConnection = RunService.Heartbeat:Connect(function()
+                if not PanelState.FlingActive then return end
+                local currentCharacter = LocalPlayer.Character
+                local currentRoot = currentCharacter and currentCharacter:FindFirstChild("HumanoidRootPart")
+                if currentRoot then
+                    local existingBAV = currentRoot:FindFirstChild("ArchitecturalFlingBAV")
+                    local existingBV = currentRoot:FindFirstChild("ArchitecturalFlingBV")
+                    if not existingBAV then
+                        local newBAV = Instance.new("BodyAngularVelocity")
+                        newBAV.Name = "ArchitecturalFlingBAV"
+                        newBAV.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                        newBAV.AngularVelocity = Vector3.new(0, 999999999, 0)
+                        newBAV.Parent = currentRoot
+                    end
+                    if not existingBV then
+                        local newBV = Instance.new("BodyVelocity")
+                        newBV.Name = "ArchitecturalFlingBV"
+                        newBV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                        newBV.Velocity = Vector3.new(0, 0, 0)
+                        newBV.Parent = currentRoot
+                    end
+                end
+            end)
+        else
+            if rootPart:FindFirstChild("ArchitecturalFlingBAV") then
+                rootPart.ArchitecturalFlingBAV:Destroy()
+            end
+            if rootPart:FindFirstChild("ArchitecturalFlingBV") then
+                rootPart.ArchitecturalFlingBV:Destroy()
+            end
+        end
     end,
 })
 
